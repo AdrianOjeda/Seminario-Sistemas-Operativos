@@ -1,45 +1,60 @@
+#!/bin/bash
 
-# Verificar que se proporcionen los argumentos requeridos
-if [ "$#" -lt 7 ]; then
-  echo "Uso: $0 <nombre_vm> <tipo_sistema> <cpus> <ram_gb> <vram_mb> <tamano_disco_gb> <controlador_sata> <controlador_ide>"
+# Verifica que el script reciba los argumentos necesarios
+if [ "$#" -ne 8 ]; then
+  echo "Uso: $0 <nombre_vm> <tipo_os> <cpus> <ram_gb> <vram_mb> <disk_size_gb> <controlador_sata> <controlador_ide>"
   exit 1
 fi
 
-# Asignar argumentos a variables
-VM_NAME=$1
-OS_TYPE=$2
+# Asignación de argumentos a variables
+NOMBRE_VM=$1
+TIPO_OS=$2
 CPUS=$3
-RAM_GB=$4
-VRAM_MB=$5
-DISK_SIZE_GB=$6
-SATA_CONTROLLER=$7
-IDE_CONTROLLER=$8
+RAM=$(($4 * 1024))  # Convertir GB a MB
+VRAM=$5
+DISK_SIZE=$(($6 * 1024))  # Convertir GB a MB
+CONTROLADOR_SATA=$7
+CONTROLADOR_IDE=$8
 
-# Convertir tamaños de memoria a MB y disco a MB
-RAM_MB=$((RAM_GB * 1024))
-DISK_SIZE_MB=$((DISK_SIZE_GB * 1024))
+# Creación de la máquina virtual
+VBoxManage createvm --name "$NOMBRE_VM" --ostype "$TIPO_OS" --register
+if [ $? -ne 0 ]; then
+  echo "Error al crear la máquina virtual."
+  exit 1
+fi
 
-# Crear la máquina virtual
-VBoxManage createvm --name "$VM_NAME" --ostype "$OS_TYPE" --register
+# Configuración de la máquina virtual
+VBoxManage modifyvm "$NOMBRE_VM" --cpus $CPUS --memory $RAM --vram $VRAM --nic1 nat
+if [ $? -ne 0 ]; then
+  echo "Error al configurar la máquina virtual."
+  exit 1
+fi
 
-# Configurar memoria y CPUs
-VBoxManage modifyvm "$VM_NAME" --cpus $CPUS --memory $RAM_MB --vram $VRAM_MB
+# Creación del disco duro virtual
+DISK_PATH="$HOME/VirtualBox VMs/$NOMBRE_VM/${NOMBRE_VM}_disk.vdi"
+VBoxManage createmedium disk --filename "$DISK_PATH" --size $DISK_SIZE --format VDI
+if [ $? -ne 0 ]; then
+  echo "Error al crear el disco duro virtual."
+  exit 1
+fi
 
-# Crear un disco duro virtual
-DISK_PATH="$HOME/VirtualBox VMs/$VM_NAME/$VM_NAME.vdi"
-VBoxManage createmedium disk --filename "$DISK_PATH" --size $DISK_SIZE_MB --format VDI
+# Creación y configuración del controlador SATA
+VBoxManage storagectl "$NOMBRE_VM" --name "$CONTROLADOR_SATA" --add sata --controller IntelAHCI
+VBoxManage storageattach "$NOMBRE_VM" --storagectl "$CONTROLADOR_SATA" --port 0 --device 0 --type hdd --medium "$DISK_PATH"
+if [ $? -ne 0 ]; then
+  echo "Error al configurar el controlador SATA."
+  exit 1
+fi
 
-# Crear y asociar un controlador SATA
-VBoxManage storagectl "$VM_NAME" --name "$SATA_CONTROLLER" --add sata --controller IntelAhci
-VBoxManage storageattach "$VM_NAME" --storagectl "$SATA_CONTROLLER" --port 0 --device 0 --type hdd --medium "$DISK_PATH"
+# Creación y configuración del controlador IDE
+VBoxManage storagectl "$NOMBRE_VM" --name "$CONTROLADOR_IDE" --add ide
+if [ $? -ne 0 ]; then
+  echo "Error al configurar el controlador IDE."
+  exit 1
+fi
 
-# Crear y asociar un controlador IDE para CD/DVD
-VBoxManage storagectl "$VM_NAME" --name "$IDE_CONTROLLER" --add ide
-VBoxManage storageattach "$VM_NAME" --storagectl "$IDE_CONTROLLER" --port 0 --device 0 --type dvddrive --medium emptydrive
+# Imprimir configuración final
+echo "Configuración de la máquina virtual '$NOMBRE_VM':"
+VBoxManage showvminfo "$NOMBRE_VM"
 
-# Imprimir configuración de la máquina virtual
-echo "Configuración de la máquina virtual $VM_NAME:"
-VBoxManage showvminfo "$VM_NAME"
-
-# Mensaje final
-echo "Máquina virtual '$VM_NAME' creada y configurada con éxito."
+echo "Script ejecutado con éxito."
